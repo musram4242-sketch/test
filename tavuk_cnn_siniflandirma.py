@@ -26,7 +26,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.keras import layers, regularizers
 
 # %%
 # ========== AYARLAR ==========
@@ -35,9 +35,10 @@ TEST_DIR = Path(r"E:/tavuksesV2_split/test")
 
 IMG_SIZE = (224, 224)
 BATCH_SIZE = 32
-EPOCHS = 25
+EPOCHS = 35
 SEED = 42
-LEARNING_RATE = 0.0001  # her epoch boyunca sabit kalır
+LEARNING_RATE = 0.0001  # sabit
+WEIGHT_DECAY = 1e-4
 
 # %%
 # Tekrarlanabilirlik
@@ -83,49 +84,66 @@ train_ds = train_ds.prefetch(AUTOTUNE)
 test_ds = test_ds.prefetch(AUTOTUNE)
 
 # %%
-# Model (BatchNormalization eklendi, parametre sayısı ciddi artırıldı)
+# Model (accuracy artırmak için ince ayar: augmentation + daha dengeli bloklar + GAP başlık)
+augmentation = keras.Sequential(
+    [
+        layers.RandomFlip("horizontal_and_vertical"),
+        layers.RandomRotation(0.08),
+        layers.RandomZoom(0.10),
+        layers.RandomContrast(0.10),
+    ],
+    name="augmentation",
+)
+
 model = keras.Sequential(
     [
         layers.Input(shape=(*IMG_SIZE, 3)),
+        augmentation,
         layers.Rescaling(1.0 / 255),
 
-        layers.Conv2D(32, 3, padding="same", activation="relu"),
+        layers.Conv2D(32, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.Conv2D(32, 3, padding="same", activation="relu"),
+        layers.Activation("relu"),
+        layers.Conv2D(32, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
+        layers.Activation("relu"),
         layers.MaxPooling2D(),
 
-        layers.Conv2D(64, 3, padding="same", activation="relu"),
+        layers.Conv2D(64, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.Conv2D(64, 3, padding="same", activation="relu"),
+        layers.Activation("relu"),
+        layers.Conv2D(64, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
+        layers.Activation("relu"),
         layers.MaxPooling2D(),
 
-        layers.Conv2D(128, 3, padding="same", activation="relu"),
+        layers.Conv2D(128, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.Conv2D(128, 3, padding="same", activation="relu"),
+        layers.Activation("relu"),
+        layers.Conv2D(128, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
+        layers.Activation("relu"),
         layers.MaxPooling2D(),
 
-        layers.Conv2D(256, 3, padding="same", activation="relu"),
+        layers.Conv2D(192, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.Conv2D(256, 3, padding="same", activation="relu"),
+        layers.Activation("relu"),
+        layers.Conv2D(192, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
+        layers.Activation("relu"),
         layers.MaxPooling2D(),
 
-        layers.Conv2D(512, 3, padding="same", activation="relu"),
+        layers.Conv2D(256, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.Conv2D(512, 3, padding="same", activation="relu"),
+        layers.Activation("relu"),
+        layers.Conv2D(256, 3, padding="same", use_bias=False),
         layers.BatchNormalization(),
-        layers.MaxPooling2D(),
+        layers.Activation("relu"),
 
-        layers.Flatten(),
-        layers.Dropout(0.5),
-        layers.Dense(1024, activation="relu"),
-        layers.Dropout(0.4),
-        layers.Dense(512, activation="relu"),
-        layers.Dropout(0.3),
-        layers.Dense(256, activation="relu"),
+        layers.GlobalAveragePooling2D(),
+        layers.Dropout(0.45),
+        layers.Dense(384, activation="relu", kernel_regularizer=regularizers.l2(WEIGHT_DECAY)),
+        layers.Dropout(0.25),
         layers.Dense(num_classes, activation="softmax"),
     ]
 )
@@ -134,7 +152,7 @@ optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
 model.compile(
     optimizer=optimizer,
-    loss="categorical_crossentropy",
+    loss=keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
     metrics=["accuracy"],
 )
 
@@ -144,9 +162,7 @@ print(f"Sabit learning rate: {LEARNING_RATE}")
 # %%
 # Eğitim
 callbacks = [
-    keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=6, restore_best_weights=True
-    )
+    keras.callbacks.EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True),
 ]
 
 history = model.fit(
@@ -213,4 +229,4 @@ print(metrics_df.round(4))
 
 # %%
 # İsterseniz modeli kaydedin:
-# model.save("tavuk_cnn_model_v2.h5")
+# model.save("tavuk_cnn_model_v3.h5")
